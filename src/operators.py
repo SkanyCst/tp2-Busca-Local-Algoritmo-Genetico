@@ -39,11 +39,40 @@ def get_two_opt_neighbors(pi: List[int]) -> Generator[Tuple[List[int], int], Non
 
 # --- SUCESSORES ALEATÓRIOS (Para SA e Greedy Random) ---
 
-def get_random_swap_successor(pi: List[int]) -> Tuple[List[int], int]:
+def get_random_swap_successor(
+    pi: List[int], rng: random.Random = None
+) -> Tuple[List[int], int]:
+    """Sorteia um vizinho por Swap e retorna (vizinho, primeiro_indice_alterado)."""
+    r = rng if rng is not None else random
     n = len(pi)
-    i, j = sorted(random.sample(range(n), 2))
+    i, j = sorted(r.sample(range(n), 2))
     neighbor = pi[:]
     neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
+    return neighbor, i
+
+def get_random_insertion_successor(
+    pi: List[int], rng: random.Random = None
+) -> Tuple[List[int], int]:
+    """Sorteia um vizinho por Insertion e retorna (vizinho, primeiro_indice_alterado)."""
+    r = rng if rng is not None else random
+    n = len(pi)
+    i = r.randrange(n)
+    valid_j = [j for j in range(n) if j != i and j != i - 1]
+    j = r.choice(valid_j)
+    neighbor = pi[:]
+    elem = neighbor.pop(i)
+    neighbor.insert(j, elem)
+    return neighbor, min(i, j)
+
+def get_random_two_opt_successor(
+    pi: List[int], rng: random.Random = None
+) -> Tuple[List[int], int]:
+    """Sorteia um vizinho por 2-opt (inversão) e retorna (vizinho, primeiro_indice_alterado)."""
+    r = rng if rng is not None else random
+    n = len(pi)
+    i, j = sorted(r.sample(range(n), 2))
+    neighbor = pi[:]
+    neighbor[i:j+1] = reversed(neighbor[i:j+1])
     return neighbor, i
 
 # --- OPERADORES GENÉTICOS (Para o Genetic Algorithm) ---

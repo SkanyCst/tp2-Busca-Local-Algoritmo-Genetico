@@ -1,0 +1,197 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tabularx}
+
+\geometry{
+  top=2.5cm,
+  bottom=2.5cm,
+  left=2.5cm,
+  right=2.5cm
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!70!black
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{gray!10},
+  frame=single,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  keywordstyle=\color{blue!80!black}\bfseries,
+  commentstyle=\color{green!50!black}\itshape,
+  stringstyle=\color{red!70!black}
+}
+
+\title{\textbf{Relatório Técnico: Implementação e Avaliação do Simulated Annealing (Algoritmo B)}\\\large Trabalho Prático 2: Busca Local e Algoritmo Genético}
+\author{\textbf{Fundamentos de Inteligência Artificial} \\ Departamento de Ciência da Computação (DCC) \\ Universidade Federal de Minas Gerais (UFMG)}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Este relatório técnico documenta o projeto, a fundamentação matemática, a calibração de hiperparâmetros e a avaliação experimental do algoritmo \textbf{Simulated Annealing (SA)} para o problema de sequenciamento de manutenção preventiva de ativos elétricos. Desenvolvido sob rigorosos princípios de isolamento arquitetural (\textit{algoritmo $\neq$ problema}), \textit{Clean Code} e SOLID, o algoritmo emprega avaliação incremental com custo $O(1)$ amortizado por transição e resfriamento geométrico adaptado à escala de cada instância. Apresentam-se resultados empíricos, análise das taxas de aceitação de movimentos de piora comprovando a transição de \textit{Random Walk} para \textit{Greedy Descent}, e a discussão teórica sobre exploração \textit{versus} intensificação e o efeito da escala.
+\end{abstract}
+
+---
+
+\section{Introdução e Contexto do Problema}
+
+O problema consiste no sequenciamento de visitas de manutenção preventiva a $n$ ativos da rede elétrica (transformadores, chaves seccionadoras, religadores) por uma única equipe que parte da base $(0, 0)$ no tempo $t=0$ e não necessita retornar. Cada ativo $j \in \{1, \dots, n\}$ possui posição geográfica $(x_j, y_j)$, duração do serviço $p_j$, prazo regulatório $d_j$ e peso de criticidade $w_j$.
+
+O deslocamento entre pontos $i$ e $j$ consome:
+\begin{equation}
+t_{ij} = \mathrm{round}\left(\sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}\right) \quad \text{horas}
+\end{equation}
+
+Uma solução candidata é uma permutação $\pi = (\pi_1, \pi_2, \dots, \pi_n)$. O instante de conclusão do $k$-ésimo ativo é computado recursivamente por $C_{\pi_k} = C_{\pi_{k-1}} + t_{\pi_{k-1}\pi_k} + p_{\pi_k}$, com $\pi_0 = 0$ e $C_{\pi_0} = 0$. A função de avaliação (fitness de custo a minimizar) é o \textbf{atraso ponderado total}:
+\begin{equation}
+h(\pi) = \sum_{j=1}^n w_j \cdot \max(0, \, C_j - d_j)
+\end{equation}
+
+O espaço de busca conta com $n!$ estados. Trata-se de um problema com restrições flexíveis (\textit{soft constraints}) caracterizado por uma tensão antagônica clássica: a heurística gulosa espacial (ir ao mais próximo para economizar tempo) colide diretamente com a gulosa temporal/crítica (ir ao mais urgente e caro para evitar multas regulatórias).
+
+---
+
+\section{Engenharia de Software e Princípios de Projeto}
+
+Seguindo estritamente a exigência da Seção 2.1 do edital (\textit{arquitetura: algoritmo $\neq$ problema}), o algoritmo foi desacoplado de qualquer conhecimento específico do domínio do problema:
+\begin{itemize}
+    \item \textbf{Single Responsibility Principle (SRP):} A responsabilidade pelo decaimento térmico é encapsulada na classe \texttt{CoolingSchedule}; o rastreamento estatístico e a amostragem em janelas temporais pertencem a \texttt{SAStats}; o laço estocástico de busca reside na função \texttt{simulated\_annealing}.
+    \item \textbf{Open/Closed Principle (OCP) e Inversão de Dependência (DIP):} O operador de vizinhança é injetado via parâmetro (\texttt{successor\_fn}), permitindo alternar livremente entre \textit{Swap}, \textit{Insertion} e \textit{2-opt}.
+    \item \textbf{Isolamento Estrito:} O algoritmo não importa nem acessa classes ou atributos internos do problema (\texttt{MaintenanceProblem}, \texttt{h}, \texttt{h\_incremental}, \texttt{\_problem}). Todo consumo de avaliações é mediado pelo \texttt{Evaluator}, e o término ocorre via lançamento e captura de \texttt{BudgetExhaustedException}.
+    \item \textbf{Don't Repeat Yourself (DRY):} A integração com o método \texttt{evaluate\_incremental} assegura que apenas o sufixo afetado pelo movimento seja recalculado, contabilizando rigorosamente 1 avaliação no orçamento.
+\end{itemize}
+
+---
+
+\section{Modelagem Matemática e Regra de Transição de Gibbs}
+
+Seja $\pi$ a permutação corrente e $\pi'$ um sucessor aleatório. A variação de custo é $\Delta h = h(\pi') - h(\pi)$. A probabilidade de aceitação de $\pi'$ no instante em que a temperatura do sistema é $T > 0$ segue a distribuição de Gibbs/Metropolis:
+\begin{equation}
+P(\text{aceitar } \pi' \mid \pi, T) = 
+\begin{cases} 
+1, & \text{se } \Delta h \le 0 \\
+\exp\left(-\dfrac{\Delta h}{T}\right), & \text{se } \Delta h > 0 
+\end{cases}
+\end{equation}
+
+---
+
+\section{Calibração do \textit{Annealing Schedule} ($T_0, T_f, \alpha$)}
+
+Conforme advertido no edital (Seção 2.4), a escala numérica de $T$ depende diretamente da magnitude dos acréscimos de atraso $\Delta h^+ > 0$. Para calibrar a temperatura inicial $T_0$, realizou-se uma amostragem preliminar de movimentos estocásticos nas três instâncias oficiais:
+
+\begin{table}[h!]
+\centering
+\small
+\caption{Investigação da magnitude de $\Delta h^+$ e parâmetros calibrados de resfriamento.}
+\label{tab:calibracao}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Instância} & $n$ & \textbf{Orçamento ($B$)} & $\overline{\Delta h^+}$ & $T_0$ & $T_f$ & $\alpha = (T_f / T_0)^{1/B}$ \\
+\midrule
+\texttt{manutencao\_pequena.txt}  & $12$  & $50.000$  & $\approx 768$   & $4.000,0$  & $0,1$ & $\approx 0,999788$ \\
+\texttt{manutencao\_media.txt}    & $50$  & $150.000$ & $\approx 4.088$ & $25.000,0$ & $0,5$ & $\approx 0,999928$ \\
+\texttt{manutencao\_grande.txt}   & $150$ & $300.000$ & $\approx 11.014$& $70.000,0$ & $1,0$ & $\approx 0,999963$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Dedução de $T_0$:} Fixando a probabilidade inicial de aceitação de uma piora média em $P_0 \approx 80\% - 85\%$, obtém-se:
+\begin{equation}
+P_0 = \exp\left(-\frac{\overline{\Delta h^+}}{T_0}\right) \implies T_0 = \frac{-\overline{\Delta h^+}}{\ln(P_0)}
+\end{equation}
+
+\noindent\textbf{Dedução de $\alpha$:} Com o resfriamento geométrico contínuo por avaliação ($T_{k+1} = \alpha T_k$), o decaimento parte de $T_0$ e atinge $T_f$ exatamente ao término do orçamento $B$:
+\begin{equation}
+T_B = T_0 \cdot \alpha^B = T_f \implies \alpha = \left(\frac{T_f}{T_0}\right)^{\frac{1}{B}}
+\end{equation}
+
+---
+
+\section{Resultados Experimentais e Amostragem de Desempenho}
+
+As amostragens foram coletadas executando o script de teste de performance \texttt{scripts/benchmark\_sa.py}. Na Tabela~\ref{tab:resultados}, reportam-se as métricas consolidadas:
+
+\begin{table}[h!]
+\centering
+\small
+\caption{Desempenho empírico do Simulated Annealing nas três instâncias.}
+\label{tab:resultados}
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Instância} & $n$ & \textbf{Orçamento} & \textbf{Melhor $h$} & \textbf{Média $\pm$ Desv.} & \textbf{Mediana} & \textbf{Gap ($h^*$)} & \textbf{Tempo Méd.} \\
+\midrule
+\texttt{pequena} & $12$  & $50.000$  & $\mathbf{1.875,0}$ & $1.894,8 \pm 29,4$ & $\mathbf{1.875,0}$ & $\mathbf{0,00\%}$ & $0,097\,\text{s}$ \\
+\texttt{media}   & $50$  & $150.000$ & $\mathbf{17.594,0}$ & $21.712,6 \pm 3.400,3$ & $21.009,0$ & — & $0,762\,\text{s}$ \\
+\texttt{grande}  & $150$ & $300.000$ & $\mathbf{102.788,0}$ & $113.879,0 \pm 9.679,6$ & $118.226,0$ & — & $4,060\,\text{s}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Destaques:}
+\begin{enumerate}
+    \item Na instância pequena, o algoritmo convergiu para o \textbf{ótimo global exato ($h^* = 1.875,0$)} na grande maioria das execuções (mediana igual ao ótimo e gap relativo de $0,00\%$).
+    \item Na instância média, o SA encontrou $h = 17.594,0$, superando substancialmente o \textit{Greedy Descent Best Improvement} ($28.836,0$) e aproximando-se do valor de referência dos professores da UFMG ($16.332,0$).
+\end{enumerate}
+
+---
+
+\section{Dinâmica da Taxa de Aceitação de Movimentos de Piora}
+
+A instrumentação em janelas temporais de amostragem registrou a razão entre movimentos de piora aceitos e propostos:
+\begin{itemize}
+    \item \textbf{Fase Inicial (0\% a 10\% do orçamento):} Taxa de aceitação média entre \textbf{79,7\% e 86,7\%}. O sistema opera praticamente como um \textit{Random Walk}, assegurando exploração global e imunidade a armadilhas locais rasas.
+    \item \textbf{Fase Intermediária (10\% a 75\%):} Decaimento monotônico da taxa de aceitação (de $\sim 60\%$ para $\sim 5\%$), restringindo gradualmente o raio de busca a vales de menor custo.
+    \item \textbf{Fase Final (últimos 15\% do orçamento):} Taxa de aceitação rigorosamente igual a \textbf{0,00\%}. O algoritmo comporta-se estritamente como um \textit{Greedy Descent}, refinando a solução até o fundo da bacia de atração.
+\end{itemize}
+
+---
+
+\section{Discussão Teórica (Respostas ao Edital)}
+
+\subsection{Exploração $\times$ Intensificação}
+O mecanismo de \textbf{exploração} é determinado pela estocasticidade da distribuição de Gibbs sob temperatura $T$ alta, que permite ao algoritmo aceitar movimentos de piora significativos e transpor cristas de alto atraso ponderado. O mecanismo de \textbf{intensificação} é regido pelo resfriamento contínuo $\alpha$, reduzindo a probabilidade de salto térmico e confinando a busca na melhor região amostrada.
+
+\subsection{Efeito da Escala e Custo da Vizinhança}
+O contraste entre o \textit{Simulated Annealing} e o \textit{Greedy Descent (Best Improvement)} evidencia o gargalo de escala:
+\begin{itemize}
+    \item Para $n=12$, varrer toda a vizinhança de troca custa apenas $\frac{12 \times 11}{2} = 66$ avaliações. O \textit{Greedy Descent} consegue realizar dezenas de reinícios aleatórios dentro do orçamento de $50.000$ passos.
+    \item Para $n=50$ e $n=150$, uma única varredura consome $1.225$ e $11.175$ avaliações, respectivamente. O \textit{Greedy Best} fica paralisado varrendo vizinhos e mal consegue completar 2 descidas antes que o orçamento se esgote.
+    \item Em contrapartida, o \textbf{Simulated Annealing} sorteia um vizinho aleatório por vez, avalia incrementalmente em tempo $O(1)$ amortizado e consegue dar centenas de milhares de passos estocásticos, superando amplamente o método guloso nas instâncias maiores.
+\end{itemize}
+
+---
+
+\section{Reprodutibilidade e Testes de Amostragem}
+
+Para reproduzir os testes unitários e a amostragem em lote nas diferentes entradas:
+\begin{lstlisting}[language=bash]
+# 1. Executar os 8 testes unitários do Simulated Annealing
+python3 tests/test_simulated_annealing.py
+
+# 2. Executar teste de amostragem em multiplas entradas
+python3 tests/test_sampling.py
+
+# 3. Executar o benchmark comparativo e exportar CSV
+python3 scripts/benchmark_sa.py --quick --verbose
+\end{lstlisting}
+
+\end{document}
