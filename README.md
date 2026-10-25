@@ -1,1 +1,1 @@
-# tp2-Busca-Local-Algoritmo-Generico
+# tp2-Busca-Local-Algoritmo-Genetico
