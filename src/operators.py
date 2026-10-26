@@ -1,7 +1,6 @@
 import random
-from typing import List, Generator, Tuple
+from typing import List, Generator, Tuple, Optional
 
-# --- VIZINHANÇAS COM ÍNDICE DE MUDANÇA PARA AVALIAÇÃO INCREMENTAL ---
 
 def get_swap_neighbors(pi: List[int]) -> Generator[Tuple[List[int], int], None, None]:
     """Gera vizinhos por Swap e retorna (vizinho, primeiro_indice_alterado)."""
@@ -13,10 +12,7 @@ def get_swap_neighbors(pi: List[int]) -> Generator[Tuple[List[int], int], None, 
             yield neighbor, i
 
 def get_insertion_neighbors(pi: List[int]) -> Generator[Tuple[List[int], int], None, None]:
-    """
-    Gera vizinhos por Insertion sem duplicações redundantes.
-    Remove a redundância de j == i - 1.
-    """
+    """Gera vizinhos por Insertion, omitindo j == i - 1 (equivalente a j == i)."""
     n = len(pi)
     for i in range(n):
         for j in range(n):
@@ -36,8 +32,6 @@ def get_two_opt_neighbors(pi: List[int]) -> Generator[Tuple[List[int], int], Non
             neighbor = pi[:]
             neighbor[i:j+1] = reversed(neighbor[i:j+1])
             yield neighbor, i
-
-# --- SUCESSORES ALEATÓRIOS (Para SA e Greedy Random) ---
 
 def get_random_swap_successor(
     pi: List[int], rng: random.Random = None
@@ -75,30 +69,41 @@ def get_random_two_opt_successor(
     neighbor[i:j+1] = reversed(neighbor[i:j+1])
     return neighbor, i
 
-# --- OPERADORES GENÉTICOS (Para o Genetic Algorithm) ---
-
-def order_crossover_ox(parent1: List[int], parent2: List[int]) -> List[int]:
-    """Order Crossover (OX): Preserva a validade de permutações sem duplicar ativos."""
+def order_crossover_ox(
+    parent1: List[int], parent2: List[int], rng: Optional[random.Random] = None
+) -> List[int]:
+    """Order Crossover: copia [i..j] de parent1 e preenche o resto, circularmente a partir de j+1, na ordem de parent2."""
+    r = rng if rng is not None else random
     n = len(parent1)
-    i, j = sorted(random.sample(range(n), 2))
-    
+    if n <= 1:
+        return parent1[:]
+    i, j = sorted(r.sample(range(n), 2))
+
     child = [None] * n
     child[i:j+1] = parent1[i:j+1]
+    in_child = set(parent1[i:j+1])
     
-    p2_idx = 0
-    for k in range(n):
-        if child[k] is None:
-            while parent2[p2_idx] in child:
-                p2_idx += 1
-            child[k] = parent2[p2_idx]
-            
+    p2_idx = (j + 1) % n
+    child_idx = (j + 1) % n
+    
+    for _ in range(n):
+        val = parent2[p2_idx]
+        if val not in in_child:
+            child[child_idx] = val
+            child_idx = (child_idx + 1) % n
+        p2_idx = (p2_idx + 1) % n
+
     return child
 
-def swap_mutation(pi: List[int], pm: float) -> List[int]:
+def swap_mutation(
+    pi: List[int], pm: float, rng: Optional[random.Random] = None
+) -> List[int]:
     """Aplica mutação swap com probabilidade pm."""
+    r = rng if rng is not None else random
     child = pi[:]
-    if random.random() < pm:
+    if r.random() < pm:
         n = len(child)
-        i, j = random.sample(range(n), 2)
-        child[i], child[j] = child[j], child[i]
+        if n >= 2:
+            i, j = r.sample(range(n), 2)
+            child[i], child[j] = child[j], child[i]
     return child

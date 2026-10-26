@@ -2,100 +2,113 @@
 **Fundamentos de Inteligência Artificial**  
 Departamento de Ciência da Computação (DCC) — Universidade Federal de Minas Gerais (UFMG)
 
-Este repositório contém a modelagem, implementação e análise experimental de heurísticas de busca local e metaheurísticas para o **Problema de Sequenciamento de Manutenção Preventiva de Ativos** com penalidade por atraso regulatório ponderado (*Total Weighted Tardiness*).
+Este repositório contém a modelagem formal, implementação computacional e análise experimental de heurísticas de busca local (**Greedy Descent com Random Restart** e **Simulated Annealing**) e metaheurísticas populacionais (**Algoritmo Genético com Order Crossover**) para o **Problema de Sequenciamento de Manutenção Preventiva de Ativos** sujeito a penalidades por atraso regulatório ponderado (*Total Weighted Tardiness*).
 
 ---
 
 ## Estrutura do Repositório
 
 ```text
-├── data/                               # Arquivos de instâncias do problema
-│   ├── figura1.txt                     # Exemplo ilustrativo do edital (n=4)
-│   ├── manutencao_pequena.txt          # Instância pequena (n=12, ótimo conhecido h*=1875)
-│   ├── manutencao_media.txt            # Instância média (n=50, referência h=16332)
-│   └── manutencao_grande.txt           # Instância grande (n=150, referência h=60417)
-├── docs/                               # Relatórios técnicos e fontes LaTeX
-│   ├── relatorio_tp2.tex               # Relatório final de entrega do TP (formato oficial)
-│   ├── relatorio_simulated_annealing.tex # Relatório técnico dedicado ao Simulated Annealing
-│   └── relatorio_simulated_annealing.md  # Relatório técnico em Markdown
+├── data/                                 # Instâncias e resultados experimentais
+│   ├── figura1.txt                       # Exemplo ilustrativo do edital (n=4)
+│   ├── manutencao_pequena.txt            # Instância pequena (n=12, ótimo conhecido h*=1875)
+│   ├── manutencao_media.txt              # Instância média (n=50, referência h=16332)
+│   ├── manutencao_grande.txt             # Instância grande (n=150, referência h=60417)
+│   ├── t2_neighborhoods_comparison.csv   # Comparação das 3 vizinhanças (T2)
+│   ├── resultados_oficiais_todos.csv     # Matriz completa dos experimentos oficiais (3x3)
+│   ├── tabela_principal_resultados.csv   # Tabela consolidada com estatísticas e tempos
+│   └── convergencia_trajetorias.json     # Históricos e telemetria para geração de curvas
+├── docs/                                 # Relatórios técnicos e gráficos gerados
+│   ├── relatorio_tp2.tex                 # Relatório oficial de entrega em LaTeX
+│   ├── relatorio_tp2.md                  # Relatório completo formatado em Markdown
+│   └── figures/                          # Gráficos em alta resolução
+│       ├── boxplots_comparativos.png     # Boxplots dos algoritmos nas 3 instâncias
+│       ├── curvas_convergencia.png       # Curvas de convergência e média da população do GA
+│       ├── sa_taxa_aceitacao.png         # Telemetria do SA (transição de fase)
+│       └── ga_evolucao_diversidade.png   # Evolução da diversidade do GA
 ├── scripts/
-│   └── benchmark_sa.py                 # Framework de amostragem, benchmark e exportação CSV
+│   ├── benchmark_neighborhoods_t2.py     # Comparação empírica de vizinhanças e ganho incremental (T2)
+│   ├── run_experiments.py                # Runner oficial dos 3 algoritmos + experimento adicional do GA
+│   └── generate_plots_and_stats.py       # Gerador de gráficos, boxplots e testes de Mann-Whitney U
 ├── src/
 │   ├── algorithms/
-│   │   ├── greedy_descent.py           # Algoritmo A: Descida gulosa com Random Restart
-│   │   ├── simulated_annealing.py      # Algoritmo B: Têmpera simulada com decaimento térmico
-│   │   └── genetic_algorithm.py        # Algoritmo C: Algoritmo Genético populacional
-│   ├── evaluator.py                    # Gerenciador estrito de orçamento de avaliações
-│   ├── operators.py                    # Vizinhanças (Swap, Insertion, 2-opt) e operadores genéticos
-│   └── problem.py                      # Modelagem do problema e avaliação incremental
+│   │   ├── greedy_descent.py             # Algoritmo A: Descida gulosa com Random Restart
+│   │   ├── simulated_annealing.py        # Algoritmo B: Têmpera simulada com decaimento térmico
+│   │   └── genetic_algorithm.py          # Algoritmo C: Algoritmo Genético com OX e Elitismo
+│   ├── evaluator.py                      # Gerenciador estrito de orçamento de avaliações
+│   ├── operators.py                      # Vizinhanças (Swap, Insertion, 2-opt) e operadores genéticos
+│   └── problem.py                        # Modelagem do problema e avaliação incremental O(n-k)
 └── tests/
-    ├── test_figura1.py                 # Validação da Figura 1 do edital
-    ├── test_verification.py            # Validação formal T1 (permutação identidade e budget)
-    ├── test_simulated_annealing.py     # Testes unitários do Simulated Annealing
-    └── test_sampling.py                # Teste do framework de amostragem
+    ├── test_figura1.py                   # Validação da Figura 1 do edital
+    ├── test_verification.py              # Validação formal T1 (permutação identidade e budget)
+    ├── test_greedy.py                    # Testes unitários e verificação de arquitetura AST
+    ├── test_simulated_annealing.py       # Testes unitários do Simulated Annealing
+    ├── test_genetic_algorithm.py         # Testes unitários do Algoritmo Genético
+    └── test_incremental.py              # Validação de concordância incremental vs completa
 ```
 
 ---
 
 ## Requisitos de Ambiente
 
-O projeto foi construído utilizando prioritariamente a **biblioteca padrão do Python** (`math`, `random`, `statistics`, `dataclasses`, `unittest`, `argparse`), sem exigir instalação de bibliotecas externas pesadas para rodar o núcleo dos algoritmos.
+O projeto utiliza primariamente a biblioteca padrão do Python, complementada por bibliotecas científicas padrão para amostragem estatística e geração de figuras.
 
-* **Python:** Versão 3.10 ou superior.
-* **Opcional (para suíte avançada de testes):**
+* **Python:** Versão 3.10 ou superior (testado em Python 3.12).
+* **Dependências:**
   ```bash
-  pip install pytest
+  pip install pytest numpy scipy pandas matplotlib seaborn
   ```
 
 ---
 
 ## Instruções para Reprodução
 
-### 1. Validação da Função de Avaliação e Orçamento (Tarefa T1)
-Valida os casos obrigatórios do edital: permutação identidade ($h=4.366,0$) e valores da Figura 1 ($h_{\text{guloso}}=39,0$, $h^*=22,0$):
+### 1. Execução de Todos os Testes Unitários
+Valida a função de avaliação (T1), concordância matemática entre avaliação incremental e completa, e integridade dos 3 algoritmos:
 ```bash
-python3 tests/test_verification.py
-python3 tests/test_figura1.py
+python tests/test_verification.py
+pytest tests -v
 ```
 
-### 2. Testes Unitários do Simulated Annealing
-Executa a validação do respeito estrito ao orçamento, critério de Gibbs, decaimento térmico e consistência das soluções:
+### 2. Comparação de Vizinhanças e Avaliação Incremental (Tarefa T2)
+Executa a comparação empírica entre **Swap**, **Insertion** e **2-opt** sob o mesmo orçamento e mede o speedup de tempo de parede da avaliação incremental:
 ```bash
-python3 tests/test_simulated_annealing.py
+python scripts/benchmark_neighborhoods_t2.py --budget 20000
 ```
+*Gera a tabela comparativa e salva em `data/t2_neighborhoods_comparison.csv`.*
 
-### 3. Testes do Framework de Amostragem
-Verifica o comportamento do benchmark em diferentes arquivos e ordens de magnitude:
+### 3. Protocolo Experimental Completo (Tarefa T3 e Experimento Adicional do GA)
+Para executar o protocolo oficial com os orçamentos e repetições do edital (30x pequena, 30x média, 10x grande):
+
+* **Execução Oficial Completa:**
+  ```bash
+  python scripts/run_experiments.py --full
+  ```
+
+* **Smoke Test Rápido (para verificação ágil):**
+  ```bash
+  python scripts/run_experiments.py --quick
+  ```
+
+*Os dados detalhados de cada execução são salvos em `data/resultados_oficiais_todos.csv` e `data/convergencia_trajetorias.json`.*
+
+### 4. Geração Automática de Todas as Figuras, Tabelas e Testes Estatísticos
+Processa os dados coletados e produz:
+1. **Tabela Principal (Tabela 1 do relatório)** com média $\pm$ desvio, mediana, melhor $h$, gap relativo ao ótimo e tempo de execução;
+2. **Boxplots Comparativos** (`docs/figures/boxplots_comparativos.png`);
+3. **Curvas de Convergência** com a média da população do GA (`docs/figures/curvas_convergencia.png`);
+4. **Telemetria do SA** (`docs/figures/sa_taxa_aceitacao.png`);
+5. **Evolução da Diversidade do GA** (`docs/figures/ga_evolucao_diversidade.png`);
+6. **Testes Não-Paramétricos de Mann-Whitney U** com $p$-valores para todas as comparações par a par e o experimento adicional do GA.
+
+Comando:
 ```bash
-python3 tests/test_sampling.py
+python scripts/generate_plots_and_stats.py
 ```
-
-### 4. Amostragem Experimental e Benchmark (Geração de Dados e CSV)
-O script `scripts/benchmark_sa.py` permite coletar métricas empíricas (Média $\pm$ Desvio, Mediana, Mínimo, Gap relativo ao ótimo, tempos de execução e taxas de aceitação):
-
-* **Amostragem Rápida (*Smoke Test* em todas as instâncias):**
-  ```bash
-  python3 scripts/benchmark_sa.py --quick --verbose
-  ```
-
-* **Amostragem em Instância Específica (ex: 30 runs na pequena):**
-  ```bash
-  python3 scripts/benchmark_sa.py --instances pequena --runs 30
-  ```
-
-* **Protocolo Oficial Completo do Edital (30x pequena, 30x média, 10x grande):**
-  ```bash
-  python3 scripts/benchmark_sa.py --full --csv data/resultados_oficiais_sa.csv
-  ```
-
-* **Testar Instância Customizada:**
-  ```bash
-  python3 scripts/benchmark_sa.py --custom-file data/figura1.txt --budget 1000 --runs 5
-  ```
 
 ---
 
 ## Relatórios Disponíveis
 
-* **Relatório Oficial de Entrega:** [`docs/relatorio_tp2.tex`](docs/relatorio_tp2.tex) — documento consolidado do grupo com a modelagem, T1, comparação das vizinhanças (T2), resultados do Greedy Descent e Simulated Annealing, discussões teóricas e espaço reservado para o GA.
-* **Relatório Técnico do Simulated Annealing:** [`docs/relatorio_simulated_annealing.tex`](docs/relatorio_simulated_annealing.tex) e [`docs/relatorio_simulated_annealing.md`](docs/relatorio_simulated_annealing.md) — documento aprofundado sobre a calibração de hiperparâmetros, taxas de aceitação de piora e métricas do Algoritmo B.
+* **Relatório Oficial de Entrega:** [`docs/relatorio_tp2.tex`](docs/relatorio_tp2.tex) — fonte LaTeX pronto para compilação ou submissão ao Overleaf.
+* **Relatório Completo em Markdown:** [`docs/relatorio_tp2.md`](docs/relatorio_tp2.md) — documento com todas as tabelas reais consolidadas, equações renderizadas e figuras embutidas para leitura e revisão direta.

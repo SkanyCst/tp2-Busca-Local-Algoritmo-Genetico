@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.swp
+tools/
+data/convergencia_trajetorias.json
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.tocs

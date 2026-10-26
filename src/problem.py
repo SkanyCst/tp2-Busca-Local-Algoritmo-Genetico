@@ -18,6 +18,9 @@ class MaintenanceProblem:
         self.n: int = 0
         self._load_instance(filepath)
         self.dist_matrix: List[List[int]] = self._compute_dist_matrix()
+        self._base_pi: List[int] = []
+        self._base_prefix_c: List[float] = []
+        self._base_prefix_cost: List[float] = []
 
     def _load_instance(self, filepath: str):
         with open(filepath, 'r') as f:
@@ -39,10 +42,7 @@ class MaintenanceProblem:
             ))
 
     def _compute_dist_matrix(self) -> List[List[int]]:
-        """
-        Calcula a matriz de tempos t_ij com arredondamento para o inteiro mais próximo.
-        Índice 0 é a Base. Índices 1..N são os ativos.
-        """
+        """Matriz de tempos t_ij arredondados. Índice 0 é a base; 1..N são os ativos."""
         all_points = [self.base_coords] + [(a.x, a.y) for a in self.assets]
         total_nodes = len(all_points)
         matrix = [[0] * total_nodes for _ in range(total_nodes)]
@@ -52,17 +52,17 @@ class MaintenanceProblem:
                 if i != j:
                     dx = all_points[i][0] - all_points[j][0]
                     dy = all_points[i][1] - all_points[j][1]
-                    matrix[i][j] = round(math.sqrt(dx**2 + dy**2)) # Equação (1)
+                    matrix[i][j] = round(math.sqrt(dx**2 + dy**2))
         return matrix
 
     def h(self, pi: List[int]) -> float:
-        """
-        Função de Avaliação (Fitness): Atraso Ponderado Total.
-        pi é uma permutação dos ativos (ex: [1, 2, ..., n])
-        """
+        """Atraso ponderado total da permutação pi; guarda prefixos para h_incremental."""
         c_current = 0.0
-        prev_node = 0  # Começa na Base (índice 0)
+        prev_node = 0
         total_penalty = 0.0
+
+        prefix_c = []
+        prefix_cost = []
 
         for asset_id in pi:
             asset = self.assets[asset_id - 1]
@@ -73,40 +73,40 @@ class MaintenanceProblem:
             total_penalty += asset.w * lateness
             
             prev_node = asset_id
+            prefix_c.append(c_current)
+            prefix_cost.append(total_penalty)
+
+        self._base_pi = list(pi)
+        self._base_prefix_c = prefix_c
+        self._base_prefix_cost = prefix_cost
 
         return total_penalty
 
     def h_incremental(self, pi: List[int], prev_cost: float, start_index: int) -> float:
-        """
-        Avaliação Incremental: Como h é acumulativo (não decrescente ao longo do prefixo),
-        só precisamos recalcular os tempos de conclusão e penalidades do índice start_index em diante.
-        """
-        # Se a mudança ocorreu na primeira posição, avalia do zero
+        """Recalcula h apenas a partir de start_index, reaproveitando o prefixo em cache."""
         if start_index == 0:
             return self.h(pi)
 
-        # 1. Recupera o tempo de conclusão acumulado C até o índice anterior ao alterado
-        c_current = 0.0
-        prev_node = 0  # Base
-        
-        # Acumula C até (start_index - 1)
-        for idx in range(start_index):
-            asset_id = pi[idx]
-            travel_time = self.dist_matrix[prev_node][asset_id]
-            c_current += travel_time + self.assets[asset_id - 1].p
-            prev_node = asset_id
+        if (
+            len(self._base_pi) == len(pi)
+            and self._base_prefix_c
+            and self._base_pi[:start_index] == pi[:start_index]
+        ):
+            c_current = self._base_prefix_c[start_index - 1]
+            prefix_penalty = self._base_prefix_cost[start_index - 1]
+            prev_node = pi[start_index - 1]
+        else:
+            # cache não corresponde a pi: recalcula o prefixo
+            c_current = 0.0
+            prev_node = 0
+            prefix_penalty = 0.0
+            for idx in range(start_index):
+                asset_id = pi[idx]
+                asset = self.assets[asset_id - 1]
+                c_current += self.dist_matrix[prev_node][asset_id] + asset.p
+                prefix_penalty += asset.w * max(0.0, c_current - asset.d)
+                prev_node = asset_id
 
-        # 2. Recalcula o custo parcial do prefixo intacto
-        prefix_penalty = 0.0
-        p_node = 0
-        c_temp = 0.0
-        for idx in range(start_index):
-            a_id = pi[idx]
-            c_temp += self.dist_matrix[p_node][a_id] + self.assets[a_id - 1].p
-            prefix_penalty += self.assets[a_id - 1].w * max(0.0, c_temp - self.assets[a_id - 1].d)
-            p_node = a_id
-
-        # 3. Recalcula o sufixo alterado a partir de start_index
         suffix_penalty = 0.0
         for idx in range(start_index, len(pi)):
             asset_id = pi[idx]

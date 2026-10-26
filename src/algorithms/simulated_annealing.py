@@ -1,3 +1,4 @@
+import inspect
 import math
 import random
 from dataclasses import dataclass, field
@@ -80,7 +81,6 @@ def simulated_annealing(
     current_temp = sched.t0
 
     if successor_fn is not None:
-        import inspect
         sig = inspect.signature(successor_fn)
         if "rng" in sig.parameters:
             gen_successor = lambda p: successor_fn(p, rng=random_gen)

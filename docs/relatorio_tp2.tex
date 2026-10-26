@@ -11,12 +11,13 @@
 \usepackage{xcolor}
 \usepackage{tabularx}
 \usepackage{caption}
+\usepackage{graphicx}
 
 \geometry{
-  top=2.2cm,
-  bottom=2.2cm,
-  left=2.2cm,
-  right=2.2cm
+  top=2.0cm,
+  bottom=2.0cm,
+  left=2.0cm,
+  right=2.0cm
 }
 
 \hypersetup{
@@ -26,13 +27,16 @@
   urlcolor=blue!70!black
 }
 
-\title{\textbf{Relatório Técnico — Trabalho Prático 2: Busca Local e Algoritmo Genético}\\\large Sequenciamento de Manutenção Preventiva de Ativos com Penalidade por Atraso Ponderado}
+\title{\textbf{Trabalho Prático 2: Busca Local e Algoritmo Genético}\\\large Sequenciamento de Manutenção Preventiva de Ativos com Atraso Ponderado}
 
 \author{
-  \textbf{Grupo de Inteligência Artificial} \\
-  Departamento de Ciência da Computação (DCC) \\
-  Universidade Federal de Minas Gerais (UFMG) \\
-  \texttt{\{aluno1, aluno2, aluno3, aluno4\}@dcc.ufmg.br}
+  \textbf{Alunos do Grupo:} \\[0.4em]
+  Aluno 1 --- Matrícula: \texttt{XXXXXXXXXX} \\
+  Aluno 2 --- Matrícula: \texttt{XXXXXXXXXX} \\
+  Aluno 3 --- Matrícula: \texttt{XXXXXXXXXX} \\
+  Aluno 4 --- Matrícula: \texttt{XXXXXXXXXX} \\[0.6em]
+  \small Departamento de Ciência da Computação (DCC) --- Universidade Federal de Minas Gerais (UFMG) \\
+  \small \texttt{\{aluno1, aluno2, aluno3, aluno4\}@dcc.ufmg.br}
 }
 
 \date{Belo Horizonte, Outubro de 2026}
@@ -42,173 +46,265 @@
 \maketitle
 
 \begin{abstract}
-Este trabalho apresenta o estudo, a modelagem e a resolução computacional do problema de sequenciamento de rotas de manutenção preventiva de ativos elétricos, sujeito a penalidades por atraso regulatório ponderado. Trata-se de um problema de otimização combinatória com $n!$ soluções candidatas caracterizado por conflito entre heurísticas gulosas de proximidade e urgência. Desenvolveu-se uma arquitetura estritamente desacoplada (\textit{algoritmo $\neq$ problema}) com avaliação incremental em tempo $O(1)$ amortizado. Validou-se formalmente a função de aptidão com busca exata na instância pequena ($h^* = 1.875$) e compararam-se as vizinhanças de \textit{Swap}, \textit{Insertion} e \textit{2-opt}. Foram analisados em profundidade o \textbf{Greedy Descent com Random Restart} e o \textbf{Simulated Annealing com Resfriamento Geométrico}, avaliando o equilíbrio entre exploração e intensificação, o impacto do efeito de escala e a taxa de escape de ótimos locais sob orçamento computacional fixo.
+Neste trabalho, comparamos três abordagens de otimização combinatória --- Greedy Descent com Random Restart, Simulated Annealing e Algoritmo Genético --- aplicadas ao problema de sequenciamento de rotas de manutenção preventiva de ativos elétricos com minimização de atraso ponderado total (\textit{Total Weighted Tardiness}). Seguindo as diretrizes da disciplina, a implementação desacopla o problema dos algoritmos por meio de uma interface comum de avaliação, incorporando avaliação incremental para redução de tempo de execução. Sob um orçamento rigoroso de avaliações ($50.000$, $150.000$ e $300.000$) e sementes controladas para $30$ e $10$ execuções independentes, analisamos a dinâmica de exploração e intensificação, a perda de diversidade da população no AG e o impacto da escala do problema sobre a eficiência relativa dos métodos, validando as conclusões com testes de Mann--Whitney. O código e os dados estão disponíveis no repositório: \url{https://github.com/SkanyCst/tp2-Busca-Local-Algoritmo-Genetico}.
 \end{abstract}
-
----
 
 \section{Introdução e Modelagem do Problema}
 
-\subsection{Cenário Operacional}
-Uma concessionária de energia elétrica deve realizar a manutenção preventiva de $n$ ativos distribuídos geograficamente. Uma única equipe parte da base localizada em $(0,0)$ no instante zero e atende sequencialmente cada ativo, sem necessidade de retorno à base ao final do turno.
+\subsection{Contexto e Definição Matemática}
+Uma concessionária precisa realizar a manutenção preventiva de $n$ ativos distribuídos geograficamente. Uma única equipe parte da base localizada em $(0,0)$ no instante zero e atende um ativo por vez, sem necessidade de retornar à base ao final do turno.
 
-Cada ativo $j \in \{1, \dots, n\}$ é caracterizado por:
-\begin{itemize}
-    \item Coordenadas bidimensionais $(x_j, y_j)$, definindo o tempo de deslocamento $t_{ij} = \mathrm{round}\left(\sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}\right)$ horas entre dois pontos quaisquer $i$ e $j$;
-    \item Duração da intervenção $p_j$ (em horas);
-    \item Prazo regulatório limite $d_j$ (em horas);
-    \item Peso de criticidade $w_j$, correspondente ao custo monetário por hora de atraso.
-\end{itemize}
-
-\subsection{Modelagem Matemática e Função de Aptidão}
-Uma solução candidata é representada por uma permutação $\pi = (\pi_1, \pi_2, \dots, \pi_n)$. O tempo de conclusão do $k$-ésimo ativo da sequência é dado pela relação de recorrência:
+Para cada ativo $j \in \{1, \dots, n\}$, conhecem-se a posição $(x_j, y_j)$, a duração do serviço $p_j$ (em horas), o prazo regulatório $d_j$ e a criticidade $w_j$ (custo por hora de atraso). O tempo de deslocamento entre dois nós $i$ e $j$ é dado pela distância euclidiana arredondada:
 \begin{equation}
-C_{\pi_k} = C_{\pi_{k-1}} + t_{\pi_{k-1}\pi_k} + p_{\pi_k}, \quad \text{com } \pi_0 = 0 \text{ e } C_{\pi_0} = 0
+t_{ij} = \mathrm{round}\left(\sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}\right) \text{ horas, com base } \pi_0 = 0 \text{ e } p_0 = 0
 \end{equation}
 
-A função de avaliação a ser minimizada é o \textbf{atraso ponderado total}:
+Uma solução candidata é uma permutação $\pi = (\pi_1, \pi_2, \dots, \pi_n)$. O tempo de conclusão do $k$-ésimo ativo visitado é calculado recursivamente:
+\begin{equation}
+C_{\pi_k} = C_{\pi_{k-1}} + t_{\pi_{k-1}\pi_k} + p_{\pi_k}, \quad \text{com } C_{\pi_0} = 0
+\end{equation}
+
+A função de avaliação a ser minimizada é a penalidade total por atraso:
 \begin{equation}
 h(\pi) = \sum_{j=1}^n w_j \cdot \max(0, \, C_j - d_j)
 \end{equation}
 
-\noindent Trata-se de um problema com restrições flexíveis (\textit{soft constraints}), em que qualquer permutação é viável. A complexidade reside na tensão antagônica: a proximidade espacial economiza tempo de percurso mas pode estourar prazos caros distantes, enquanto o atendimento puramente baseado em urgência força longos ziguezagues na malha geográfica.
+O problema lida com restrições flexíveis (\textit{soft constraints}): toda permutação é viável. A complexidade decorre do conflito entre dois critérios gulosos opostos: ir ao ativo mais próximo (economizando tempo de percurso) ou atender ao ativo mais urgente (evitando multas elevadas).
 
----
+\subsection{T1 --- Validação da Função de Avaliação}
+Antes dos experimentos, a função de avaliação $h(\pi)$ foi validada em relação aos gabaritos do edital:
 
-\section{Arquitetura e Engenharia de Software}
-
-Em estrito atendimento à Seção 2.1 do edital, a base do código foi estruturada de modo que os algoritmos de busca não possuam conhecimento específico sobre as regras do problema:
-\begin{itemize}
-    \item \textbf{Evaluator (Controle de Orçamento):} Instrumenta o contador global de avaliações $h(\pi)$ e interrompe o algoritmo estritamente ao esgotar o orçamento via \texttt{BudgetExhaustedException}. Proíbe qualquer vazamento de estado interno.
-    \item \textbf{Avaliação Incremental:} Ao realizar um movimento na posição $k$ da permutação, o prefixo $[0, \dots, k-1]$ permanece inalterado. O método \texttt{evaluate\_incremental} reaproveita os tempos acumulados do prefixo e recalcula apenas o sufixo afetado, reduzindo drasticamente o tempo de parede sem alterar a contagem de avaliações do orçamento.
-    \item \textbf{Princípios SOLID e Isolamento:} Módulos desacoplados via injeção de dependências (geradores de vizinhança e schedules de temperatura injetados como \textit{callables}).
-\end{itemize}
-
----
-
-\section{T1 — Validação da Função de Avaliação}
-
-Antes de executar os algoritmos, a função $h(\pi)$ foi formalmente validada frente aos casos de referência estipulados no edital:
-
-\begin{table}[h!]
+\begin{table}[htbp]
 \centering
 \small
-\caption{Validação formal da função de avaliação $h(\pi)$.}
+\caption{Validação da função de fitness $h(\pi)$ com os casos de teste do enunciado.}
 \label{tab:t1}
 \begin{tabular}{lcccc}
 \toprule
-\textbf{Instância / Caso de Teste} & \textbf{Configuração} & \textbf{Valor Esperado} & \textbf{Valor Obtido} & \textbf{Status} \\
+\textbf{Caso de Teste} & \textbf{Configuração da Solução} & \textbf{Esperado} & \textbf{Obtido} & \textbf{Status} \\
 \midrule
-Exemplo Ilustrativo (Figura 1, $n=4$) & Rota Gulosa $\pi = (1, 4, 2, 3)$ & $39,0$ & $39,0$ & Aprovado \\
-Exemplo Ilustrativo (Figura 1, $n=4$) & Rota Ótima $\pi^* = (1, 4, 3, 2)$ & $22,0$ & $22,0$ & Aprovado \\
+Figura 1 ($n=4$) & Rota Gulosa $\pi = (1, 4, 2, 3)$ & $39,0$ & $39,0$ & Aprovado \\
+Figura 1 ($n=4$) & Rota Ótima $\pi^* = (1, 4, 3, 2)$ & $22,0$ & $22,0$ & Aprovado \\
 \texttt{manutencao\_pequena.txt} ($n=12$) & Identidade $\pi = (1, 2, \dots, 12)$ & $4.366,0$ & $4.366,0$ & Aprovado \\
 \texttt{manutencao\_pequena.txt} ($n=12$) & Ótimo Global Exato ($\pi^*$) & $1.875,0$ & $1.875,0$ & Aprovado \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-A concordância absoluta entre os valores obtidos e as referências valida o cálculo das distâncias euclidianas arredondadas e a integridade da avaliação incremental.
+A coincidência exata dos valores confirmou a correção do arredondamento das distâncias e do somatório de penalidades.
 
 ---
 
-\section{T2 — Comparação dos Operadores de Vizinhança}
+\section{Arquitetura e Vizinhanças (T2)}
 
-Foram implementados os três operadores clássicos de vizinhança sobre permutações:
-\begin{enumerate}
-    \item \textbf{Swap (Troca):} Troca as posições de dois ativos distintos $i$ e $j$. Tamanho da vizinhança:
-    \begin{equation}
-    |\mathcal{V}_{\text{swap}}| = \frac{n(n-1)}{2}
-    \end{equation}
-    \item \textbf{Insertion (Realocação):} Remove o ativo na posição $i$ e o insere na posição $j$. Eliminando o caso redundante $j = i-1$, o tamanho efetivo é:
-    \begin{equation}
-    |\mathcal{V}_{\text{insertion}}| = (n-1)^2
-    \end{equation}
-    \item \textbf{2-opt (Inversão de Segmento):} Inverte a ordem do segmento contíguo entre $i$ e $j$. Tamanho:
-    \begin{equation}
-    |\mathcal{V}_{\text{2-opt}}| = \frac{n(n-1)}{2}
-    \end{equation}
-\end{enumerate}
+\subsection{Separação Algoritmo / Problema e Avaliação Incremental}
+Seguindo o requisito de desacoplamento, os algoritmos interagem com o problema através da classe \texttt{Evaluator}, que centraliza o controle do orçamento e interrompe a execução com \texttt{BudgetExhaustedException} ao esgotar o limite de avaliações. Testes automáticos via AST garantem que nenhum algoritmo acessa atributos internos do problema.
 
-\paragraph{Impacto na Avaliação Incremental:}
-No operador \textit{Swap}, a alteração afeta o sufixo a partir do índice $\min(i, j)$, com média de reaproveitamento de prefixo em torno de $n/3$. No \textit{Insertion}, o índice inicial de mutação é $\min(i, j)$. No \textit{2-opt}, afeta a partir de $i$. Para a instância grande ($n=150$), uma varredura completa consome $11.175$ avaliações para \textit{Swap} e \textit{2-opt}, e $22.201$ para \textit{Insertion}. O operador \textit{Swap} foi selecionado como padrão para os experimentos estocásticos por seu equilíbrio entre perturbação estrutural mínima e baixo custo computacional.
+Como $h(\pi)$ depende do histórico temporal acumulado ao longo da rota, qualquer alteração a partir do índice $k$ não altera os tempos de conclusão nem as penalidades dos ativos no prefixo $[0, \dots, k-1]$. A avaliação incremental reaproveita esse prefixo e recalcula apenas o trecho $k \dots n$. Em nossos testes, o ganho de tempo de parede medido foi de $1,06\times$ na instância pequena, $1,17\times$ na média e $1,20\times$ na grande, preservando rigorosamente a contagem de avaliações do orçamento.
 
----
-
-\section{Heurísticas Implementadas e Análise de Desempenho}
-
-\subsection{Algoritmo A — Greedy Descent com Random Restart}
-O algoritmo parte de uma permutação inicial aleatória e move-se iterativamente para o melhor vizinho estrito ($\Delta h < 0$). Ao atingir um mínimo local, registra a solução e efetua um \textit{random restart} até que o orçamento do \texttt{Evaluator} seja esgotado.
-
-\paragraph{Resultados na Instância Pequena ($n=12$, Orçamento = $50.000$):}
+\subsection{T2 --- Comparação dos Operadores de Vizinhança}
+Implementamos os três operadores clássicos de vizinhança sobre permutações:
 \begin{itemize}
-    \item Em $10$ de $10$ execuções independentes ($100\%$ de sucesso), o algoritmo alcançou o \textbf{ótimo global exato $h^* = 1.875$}.
-    \item Em cada execução de $50.000$ avaliações, o algoritmo encontrou em média \textbf{$61,3$ ótimos locais distintos}. Esse resultado ilustra que a paisagem da instância pequena é densamente povoada de mínimos locais, mas o raio das bacias de atração é pequeno o suficiente para que o reinício aleatório encontre a bacia do ótimo global com facilidade.
+    \item \textbf{Swap (Troca):} Troca de posição de dois ativos distintos $i$ e $j$. Tamanho: $|\mathcal{V}_{\text{swap}}| = n(n-1)/2$.
+    \item \textbf{Insertion (Realocação):} Retira o ativo na posição $i$ e insere na posição $j$. Eliminando o caso redundante $j = i-1$, o tamanho é $|\mathcal{V}_{\text{insertion}}| = (n-1)^2$.
+    \item \textbf{2-opt (Inversão):} Inverte a ordem do segmento entre $i$ e $j$. Tamanho: $|\mathcal{V}_{\text{2-opt}}| = n(n-1)/2$.
 \end{itemize}
 
-\paragraph{Gargalo de Escala:}
-Nas instâncias média ($n=50$) e grande ($n=150$), cada passo da variante \textit{Best Improvement} exige examinar $1.225$ e $11.175$ vizinhos. Em testes na instância média com $150.000$ avaliações, o \textit{Greedy Best} conseguiu completar apenas \textbf{$2$ descidas}, ficando confinado a mínimos de qualidade intermediária ($h \approx 28.836,0$).
+A Tabela~\ref{tab:t2} resume o teste comparativo executando o Greedy Descent com Random Restart sob o mesmo orçamento de $20.000$ avaliações:
 
----
-
-\subsection{Algoritmo B — Simulated Annealing}
-Para contornar a paralisia do método guloso em altas dimensões, o \textbf{Simulated Annealing} sorteia vizinhos estocasticamente em tempo $O(1)$ amortizado e aceita movimentos de piora ($\Delta h > 0$) com probabilidade $P = \exp(-\Delta h / T)$.
-
-\paragraph{Calibração do Schedule Geométrico:}
-A magnitude média dos saltos de piora ($\overline{\Delta h^+}$) varia conforme o tamanho da instância: $\approx 768$ (pequena), $\approx 4.088$ (média) e $\approx 11.014$ (grande). Para garantir uma taxa inicial de aceitação $P_0 \approx 80\% - 85\%$ e final $P_f \to 0$, calibrou-se analyticamente:
-\begin{equation}
-T_0 = \frac{-\overline{\Delta h^+}}{\ln(P_0)}, \quad \alpha = \left(\frac{T_f}{T_0}\right)^{\frac{1}{B}}
-\end{equation}
-
-\begin{table}[h!]
+\begin{table}[htbp]
 \centering
 \small
-\caption{Parâmetros do schedule térmico e desempenho consolidado do Simulated Annealing.}
-\label{tab:sa}
-\begin{tabular}{lcccccccc}
+\caption{Comparação das três vizinhanças sob Greedy Descent (Orçamento = $20.000$ avaliações).}
+\label{tab:t2}
+\begin{tabular}{llccccc}
 \toprule
-\textbf{Instância} & $n$ & \textbf{Orçamento} & $T_0$ & $T_f$ & \textbf{Melhor $h$} & \textbf{Média $\pm$ Desvio} & \textbf{Mediana} & \textbf{Gap ($h^*$)} \\
+\textbf{Instância} & \textbf{Vizinhança} & \textbf{Tamanho Teórico} & \textbf{Melhor $h$} & \textbf{Descidas} & \textbf{Passos} & \textbf{Tempo (s)} \\
 \midrule
-\texttt{pequena} & $12$  & $50.000$  & $4.000$  & $0,1$ & $\mathbf{1.875,0}$ & $1.894,8 \pm 29,4$ & $\mathbf{1.875,0}$ & $\mathbf{0,00\%}$ \\
-\texttt{media}   & $50$  & $150.000$ & $25.000$ & $0,5$ & $\mathbf{17.594,0}$ & $21.712,6 \pm 3.400,3$ & $21.009,0$ & — \\
-\texttt{grande}  & $150$ & $300.000$ & $70.000$ & $1,0$ & $\mathbf{102.788,0}$ & $113.879,0 \pm 9.679,6$ & $118.226,0$ & — \\
+Pequena ($n=12$) & Swap      & $66$    & $\mathbf{1.875,0}$ & $38$ & $264$ & $0,087$ \\
+Pequena ($n=12$) & Insertion & $121$   & $\mathbf{1.875,0}$ & $20$ & $145$ & $0,093$ \\
+Pequena ($n=12$) & 2-opt     & $66$    & $\mathbf{1.875,0}$ & $32$ & $270$ & $0,095$ \\
+\midrule
+Média ($n=50$)   & Swap      & $1.225$ & $48.256,0$         & $0$  & $16$  & $0,297$ \\
+Média ($n=50$)   & Insertion & $2.401$ & $84.032,0$         & $0$  & $8$   & $0,297$ \\
+Média ($n=50$)   & 2-opt     & $1.225$ & $\mathbf{46.711,0}$ & $0$  & $16$  & $0,306$ \\
+\midrule
+Grande ($n=150$) & Swap      & $11.175$ & $1.169.591,0$     & $0$  & $1$   & $0,851$ \\
+Grande ($n=150$) & Insertion & $22.201$ & $1.289.488,0$     & $0$  & $0$   & $0,844$ \\
+Grande ($n=150$) & 2-opt     & $11.175$ & $\mathbf{1.013.101,0}$ & $0$  & $1$   & $0,882$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Dinâmica da Taxa de Aceitação de Pioras:}
-A telemetria do algoritmo comprovou a transição de fases exigida na Seção 2.4:
+\paragraph{Vizinhança Adotada:} O operador \textit{Insertion} possui tamanho que cresce como $(n-1)^2 \approx 2n^2$, consumindo avaliações rapidamente e permitindo poucos passos de melhora. Os operadores \textit{Swap} e \textit{2-opt} têm tamanho idêntico ($n(n-1)/2$). Escolhemos o \textit{Swap} como padrão para as buscas estocásticas devido ao seu baixo overhead por movimento e reaproveitamento médio de prefixo em torno de $n/3$, com perturbação atômica controlada.
+
+---
+
+\section{Algoritmos Implementados}
+
+\subsection{Algoritmo A --- Greedy Descent com Random Restart}
+Inicia em uma permutação aleatória e realiza movimentos de descida escolhendo o sucessor de menor custo estrito ($\Delta h < 0$). Quando nenhum vizinho melhora o custo, o algoritmo atinge um ótimo local, registra a solução encontrada e reinicia em uma nova permutação aleatória. Adotamos a variante \textit{Best Improvement}, que varre toda a vizinhança a cada passo.
+
+\subsection{Algoritmo B --- Simulated Annealing}
+Sorteia vizinhos por \textit{Swap}. Se o vizinho for melhor ($\Delta h \le 0$), ele é aceito imediatamente. Se for pior ($\Delta h > 0$), é aceito com probabilidade de Gibbs:
+\begin{equation}
+P(\text{aceitar}) = \exp\left(-\frac{\Delta h}{T}\right)
+\end{equation}
+Usamos o resfriamento geométrico $T \leftarrow \alpha T$. As temperaturas foram calibradas medindo-se a magnitude média dos saltos de piora $\overline{\Delta h^+}$ em cada instância:
 \begin{itemize}
-    \item Nos primeiros $10\%$ do orçamento, a taxa de aceitação média situou-se entre \textbf{$79,7\%$ e $86,7\%$} (\textit{Random Walk} com ampla exploração global);
-    \item Ao longo dos $10\%$ finais, a taxa decaiu monotonicamente para \textbf{$0,00\%$} (\textit{Greedy Descent} intensivo no fundo da melhor bacia visitada).
+    \item Pequena ($n=12$): $T_0 = 4.000$, $T_f = 0,1$, $\alpha = 0,99979$
+    \item Média ($n=50$): $T_0 = 25.000$, $T_f = 0,5$, $\alpha = 0,99993$
+    \item Grande ($n=150$): $T_0 = 70.000$, $T_f = 1,0$, $\alpha = 0,99996$
+\end{itemize}
+Essa calibração assegura taxa de aceitação inicial de pioras entre $80\%$ e $85\%$, decaindo para $0\%$ ao término da execução.
+
+\subsection{Algoritmo C --- Algoritmo Genético}
+Implementado com população $N = 60$, seleção por torneio ($k = 3$), cruzamento \textit{Order Crossover} (OX) com taxa $P_c = 0,85$, mutação por troca (\textit{Swap Mutation}) com taxa $P_m = 0,15$ e elitismo mantendo o melhor indivíduo de cada geração sem reavaliá-lo.
+
+\paragraph{Exemplo Numérico do Order Crossover (OX):}
+Considere dois pais de tamanho $n = 8$ com cortes em $i = 2$ e $j = 5$:
+\begin{align*}
+\text{Pai 1:} & \quad [1, \; 2, \; |\mathbf{3, \; 4, \; 5, \; 6}|, \; 7, \; 8] \\
+\text{Pai 2:} & \quad [8, \; 7, \; 6, \; 5, \; 4, \; 3, \; 2, \; 1]
+\end{align*}
+\begin{enumerate}
+    \item Copia-se o bloco contíguo $[i \dots j]$ do Pai 1 para o filho:
+    $$\text{Filho parcial:} \quad [\_, \; \_, \; \mathbf{3, \; 4, \; 5, \; 6}, \; \_, \; \_]$$
+    \item Percorrem-se os elementos do Pai 2 a partir do índice $j+1 = 6$ (com rotação circular): $[2, 1, 8, 7, 6, 5, 4, 3]$. Os valores já presentes no filho ($3, 4, 5, 6$) são descartados.
+    \item Preenchem-se as posições livres do filho a partir de $j+1 = 6$ na ordem resultante: posições $6$ (com $2$), $7$ (com $1$), $0$ (com $8$) e $1$ (com $7$).
+    $$\text{Filho final:} \quad [\mathbf{8}, \; \mathbf{7}, \; \mathbf{3}, \; \mathbf{4}, \; \mathbf{5}, \; \mathbf{6}, \; \mathbf{2}, \; \mathbf{1}]$$
+\end{enumerate}
+Dessa forma, preserva-se a ordem relativa e a validade da permutação sem duplicações.
+
+---
+
+\section{Resultados Experimentais}
+
+\subsection{Tabela Principal (9 Combinações Oficiais)}
+Executamos o protocolo completo estipulado no edital: $30$ execuções independentes para as instâncias pequena ($50.000$ avaliações) e média ($150.000$), e $10$ repetições para a grande ($300.000$). A Tabela~\ref{tab:principal} resume as métricas obtidas:
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Resultados consolidados dos três algoritmos nas três instâncias.}
+\label{tab:principal}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Instância} & \textbf{Algoritmo} & \textbf{Orçamento} & \textbf{Runs} & \textbf{Melhor $h$} & \textbf{Média $\pm$ Desvio} & \textbf{Mediana} & \textbf{Gap ($h^*$)} \\
+\midrule
+Pequena ($n=12$) & Greedy Descent      & $50.000$  & $30$ & $\mathbf{1.875,0}$ & $\mathbf{1.875,0 \pm 0,0}$ & $\mathbf{1.875,0}$ & $\mathbf{0,00\%}$ \\
+Pequena ($n=12$) & Simulated Annealing & $50.000$  & $30$ & $\mathbf{1.875,0}$ & $1.881,2 \pm 18,9$         & $\mathbf{1.875,0}$ & $\mathbf{0,00\%}$ \\
+Pequena ($n=12$) & Genetic Algorithm   & $50.000$  & $30$ & $\mathbf{1.875,0}$ & $2.324,1 \pm 230,2$        & $2.303,5$          & $\mathbf{0,00\%}$ \\
+\midrule
+Média ($n=50$)   & Greedy Descent      & $150.000$ & $30$ & $25.963,0$         & $29.410,8 \pm 2.251,7$     & $29.246,0$          & --- \\
+Média ($n=50$)   & Simulated Annealing & $150.000$ & $30$ & $\mathbf{17.623,0}$ & $\mathbf{21.124,9 \pm 2.243,8}$ & $\mathbf{20.588,0}$ & --- \\
+Média ($n=50$)   & Genetic Algorithm   & $150.000$ & $30$ & $21.180,0$         & $29.972,0 \pm 3.950,0$     & $30.697,0$          & --- \\
+\midrule
+Grande ($n=150$) & Greedy Descent      & $300.000$ & $10$ & $470.970,0$        & $499.334,5 \pm 24.888,5$   & $488.506,0$         & --- \\
+Grande ($n=150$) & Simulated Annealing & $300.000$ & $10$ & $\mathbf{102.073,0}$ & $\mathbf{112.624,2 \pm 9.294,0}$ & $\mathbf{111.042,0}$ & --- \\
+Grande ($n=150$) & Genetic Algorithm   & $300.000$ & $10$ & $159.261,0$        & $177.061,1 \pm 10.981,8$   & $175.406,5$         & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Testes Estatísticos Não-Paramétricos (Mann--Whitney U)}
+Para avaliar se as diferenças observadas possuem significância estatística, aplicamos o teste bicaudal de Mann--Whitney entre pares de algoritmos:
+\begin{itemize}
+    \item \textbf{Instância Pequena:} Greedy vs SA não apresenta diferença significativa ($U = 405,0$, $p = 0,0814$), com ambos os métodos encontrando a solução ótima com muita frequência. Em contrapartida, as diferenças entre as buscas locais e o AG foram estatisticamente significativas ($p < 10^{-10}$), indicando que os métodos locais convergem de forma mais consistente na escala reduzida.
+    \item \textbf{Instância Média:} O SA superou tanto o Greedy ($U = 899,0$, $p = 3,34 \times 10^{-11}$) quanto o AG ($U = 35,0$, $p = 8,89 \times 10^{-10}$) com alta significância estatística. Entre Greedy e AG, a diferença não foi significativa ($U = 371,0$, $p = 0,2458$).
+    \item \textbf{Instância Grande:} O SA permaneceu superior a ambos os concorrentes ($p = 1,83 \times 10^{-4}$). O AG, por sua vez, superou expressivamente o Greedy ($U = 100,0$, $p = 1,83 \times 10^{-4}$), confirmando a inversão de ranking provocada pelo aumento da escala.
 \end{itemize}
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/boxplots_comparativos.png}
+\caption{Boxplots comparativos dos custos encontrados pelos algoritmos nas três instâncias.}
+\label{fig:boxplots}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/curvas_convergencia.png}
+\caption{Curvas de convergência (mediana de 30/10 execuções) e média da população do AG.}
+\label{fig:convergencia}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/sa_taxa_aceitacao.png}
+\caption{Taxa de aceitação de movimentos de piora no SA ao longo da execução.}
+\label{fig:sa_taxa}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/ga_evolucao_diversidade.png}
+\caption{Evolução da diversidade populacional no AG (\% de indivíduos distintos).}
+\label{fig:ga_diversidade}
+\end{minipage}
+\end{figure}
+
 ---
 
-\subsection{Algoritmo C — Genetic Algorithm (Em integração)}
-\textit{[Seção reservada para a descrição do Algoritmo Genético: tamanho da população $N$, operador de seleção por torneio/roleta, recombinação via Order Crossover (OX) para preservação de permutações, probabilidade de mutação $P_m$ com Swap Mutation, elitismo e gráficos de perda de diversidade populacional.]}
+\section{Discussão dos Resultados}
 
----
+\subsection{1. Ótimos Locais no Greedy Descent}
+Na instância pequena ($n=12$), o Greedy Descent com Random Restart alcançou o ótimo global exato $h^* = 1.875$ em \textbf{$30$ de $30$ execuções ($100\%$ de sucesso)}. A cada execução de $50.000$ avaliações, o algoritmo encontrou em média \textbf{$61,3$ ótimos locais distintos}. Esse comportamento mostra que o espaço da instância pequena possui muitos mínimos locais, mas a bacia de atração do ótimo global tem tamanho suficiente para ser amostrada frequentemente com poucas dezenas de reinícios aleatórios. Em comparação, o SA atingiu o ótimo em $90\%$ das execuções e o AG em $10\%$.
 
-\section{Discussão Teórica e Respostas às Questões do Edital}
+\subsection{2. Equilíbrio entre Exploração e Intensificação}
+\begin{itemize}
+    \item \textbf{Greedy Descent:} Opera por intensificação pura durante a descida e depende exclusivamente do reinício aleatório desconexo para exploração. Esse esquema funciona bem quando varrer a vizinhança é barato, mas falha quando o custo por passo esgota o orçamento.
+    \item \textbf{Simulated Annealing:} Realiza essa transição de forma contínua através do parâmetro de temperatura. Conforme observado na Figura~\ref{fig:sa_taxa}, nos primeiros $10\%$ do orçamento a taxa de aceitação de pioras situa-se em $80\%$--$85\%$, comportando-se como um passeio aleatório capaz de escapar de mínimos locais. Nos $15\%$ finais, a taxa converge a zero e o algoritmo atua como busca local estrita no fundo da melhor bacia visitada.
+    \item \textbf{Genetic Algorithm:} A recombinação OX e a mutação providenciam exploração, enquanto o torneio e o elitismo guiam a intensificação. A Figura~\ref{fig:ga_diversidade} indica que a população perde diversidade de maneira constante; quando essa perda ocorre precocemente, o restante do orçamento é gasto em melhorias incrementais na mesma região do espaço.
+\end{itemize}
 
-\subsection{Exploração $\times$ Intensificação}
-No \textbf{Greedy Descent}, a intensificação é absoluta durante a descida (busca cega na vizinhança), enquanto a exploração é delegada unicamente ao reinício estocástico desconexo. No \textbf{Simulated Annealing}, há uma transição suave e contínua: $T$ atua como o modulador dinâmico entre exploração irrestrita (alta temperatura) e intensificação local (baixa temperatura).
+\subsection{3. Efeito da Escala e Inversão de Ranking}
+Observa-se uma inversão clara no ranking relativo dos métodos entre as instâncias pequena e grande:
+\begin{align*}
+\text{Instância Pequena } (n=12): & \quad \text{Greedy} \approx \text{SA} \succ \text{AG} \\
+\text{Instância Grande } (n=150): & \quad \text{SA} \succ \text{AG} \succ \text{Greedy}
+\end{align*}
+Essa alteração deve-se ao custo de varredura da vizinhança. Para $n=150$, uma única varredura por Swap consome $n(n-1)/2 = 11.175$ avaliações. Como resultado, em todo o orçamento de $300.000$ avaliações, o Greedy conseguiu dar em média apenas $\approx 26$ passos de melhoria antes de estourar o limite, ficando preso em soluções distantes da referência ($h \approx 488.506$). O SA, que avalia exatamente $1$ sucessor por passo, realiza centenas de milhares de tentativas e alcança $h = 102.073$. O AG, por sua natureza populacional, também superou o Greedy na instância grande ($h = 159.261$).
 
-\subsection{Efeito da Escala}
-Na instância pequena ($n=12$), o \textit{Greedy Descent} é altamente competitivo devido ao baixo custo de varredura ($66$ vizinhos). Contudo, nas instâncias média e grande, ocorre uma inversão de ranking: o \textit{Simulated Annealing} supera expressivamente o método guloso, pois gasta apenas $1$ avaliação por iteração e executa centenas de milhares de passos estocásticos no tempo em que o guloso daria poucas dezenas de passos.
+\subsection{4. Quando o Algoritmo Genético Compensa? Experimento Adicional}
+Para avaliar a hipótese de que a recombinação consegue transmitir blocos úteis de sequência entre pais e filhos neste problema, realizamos um experimento adicional comparando o **AG canônico com Order Crossover ($P_c = 0,85$)** contra uma variante de **AG sem crossover ($P_c = 0,0$, com mutação pura a $P_m = 0,25$)**, mantendo idênticos orçamentos, populações e sementes:
+\begin{itemize}
+    \item Pequena ($n=12$): Mediana $2.303,5$ (com OX) vs $2.257,5$ (sem OX) --- teste de Mann--Whitney com $p = 0,5739$ (diferença não significativa).
+    \item Média ($n=50$): Mediana $30.697,0$ (com OX) vs $31.095,0$ (sem OX) --- $p = 0,6414$ (não significativo).
+    \item Grande ($n=150$): Mediana $175.406,5$ (com OX) vs $165.501,0$ (sem OX) --- $p = 0,1405$ (não significativo).
+\end{itemize}
+\paragraph{Análise:} O crossover OX não superou a busca mutacional pura nem as buscas locais. Esse comportamento é explicado pela estrutura temporal do problema: o tempo de conclusão de cada ativo é acumulativo ($C_{\pi_k} = C_{\pi_{k-1}} + t_{\pi_{k-1}\pi_k} + p_{\pi_k}$). Quando o operador OX transplanta um bloco contíguo de um pai para outro, o atraso acumulado da primeira metade da rota desloca o instante de início de todos os atendimentos do bloco herdado, quebrando a sincronia com os prazos regulatórios $d_j$. Em problemas com forte dependência de histórico cumulativo, operadores de corte e transplante em permutações tendem a ser disruptivos, favorecendo perturbações locais graduais como as empregadas pelo Simulated Annealing.
 
 ---
 
 \section{Instruções para Reprodução}
 
-Todos os resultados reportados são estritamente reprodutíveis através dos scripts da raiz do projeto:
-\begin{itemize}
-    \item \textbf{Validação da Função de Custo e Orçamento:} \texttt{python3 tests/test_verification.py}
-    \item \textbf{Testes Unitários do Simulated Annealing:} \texttt{python3 tests/test_simulated_annealing.py}
-    \item \textbf{Bateria de Amostragem Comparativa com Exportação CSV:}
+Todo o código-fonte, dados e rotinas de benchmark estão disponíveis no repositório:
+\begin{center}
+\url{https://github.com/SkanyCst/tp2-Busca-Local-Algoritmo-Genetico}
+\end{center}
+
+Para reproduzir os resultados, gráficos e tabelas do relatório:
+\begin{enumerate}
+    \item \textbf{Validação T1 e testes unitários:}
     \begin{quote}
-    \texttt{python3 scripts/benchmark\_sa.py --quick --verbose}
+    \texttt{python tests/test\_verification.py} \\
+    \texttt{pytest tests -v}
     \end{quote}
-\end{itemize}
+    \item \textbf{Comparação de vizinhanças (T2):}
+    \begin{quote}
+    \texttt{python scripts/benchmark\_neighborhoods\_t2.py --budget 20000}
+    \end{quote}
+    \item \textbf{Protocolo experimental oficial (3x3):}
+    \begin{quote}
+    \texttt{python scripts/run\_experiments.py --full}
+    \end{quote}
+    \item \textbf{Geração dos gráficos, tabelas e testes estatísticos:}
+    \begin{quote}
+    \texttt{python scripts/generate\_plots\_and\_stats.py}
+    \end{quote}
+\end{enumerate}
 
 \end{document}
